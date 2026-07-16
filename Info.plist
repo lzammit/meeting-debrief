@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.luzammi.meetingdebrief</string>
+	<key>CFBundleName</key>
+	<string>MeetingDebrief</string>
+	<key>CFBundleDisplayName</key>
+	<string>MeetingDebrief</string>
+	<key>CFBundleExecutable</key>
+	<string>MeetingDebrief</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>MeetingDebrief reads your calendar to know when meetings end, so it can prompt you for a summary or next step.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MeetingDebrief records your side of meetings so it can transcribe them for you (only when auto-record is enabled).</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>MeetingDebrief transcribes meeting recordings on-device to attach a transcript to each meeting.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>MeetingDebrief captures system audio during meetings so other participants are included in the transcript.</string>
+</dict>
+</plist>

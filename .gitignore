@@ -1,0 +1,17 @@
+# Swift Package Manager build output
+.build/
+
+# App bundle produced by build.sh
+dist/
+
+# macOS
+.DS_Store
+
+# Xcode (if the project is ever opened there)
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# Scratch
+*.tmp
