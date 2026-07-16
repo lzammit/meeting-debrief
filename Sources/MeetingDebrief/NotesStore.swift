@@ -5,9 +5,12 @@ import AppKit
 /// ~/Documents/MeetingDebrief/, e.g. 2026-07-07.md.
 enum NotesStore {
     static var folderURL: URL {
-        FileManager.default
+        // Demo mode keeps all data in a separate folder so it never mixes
+        // with real notes.
+        let name = DemoData.isEnabled ? "MeetingDebrief-Demo" : "MeetingDebrief"
+        return FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MeetingDebrief", isDirectory: true)
+            .appendingPathComponent(name, isDirectory: true)
     }
 
     static func save(kind: NoteKind, text: String, eventTitle: String, eventEnd: Date) {

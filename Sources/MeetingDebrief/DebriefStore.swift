@@ -133,6 +133,11 @@ final class DebriefStore: ObservableObject {
         }
     }
 
+    /// Re-read all stores from disk (used after demo seeding).
+    func reload() {
+        load()
+    }
+
     private func load() {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

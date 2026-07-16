@@ -18,6 +18,15 @@ the optional "Summarize with Claude" button — and only when you click it.
 
 ---
 
+## Screenshots
+
+![Transcript and AI summary](docs/screenshots/transcript.png)
+
+_A meeting's debrief notes, the Me/Them transcript, and the on-device / Claude
+summarize buttons. Screenshots use built-in demo data — no real calendar or
+client information. See [docs/screenshots/](docs/screenshots/) to regenerate the
+full set (main window, popup, settings)._
+
 ## What it does
 
 - **End-of-meeting debrief popup.** When a meeting ends, a floating panel jumps

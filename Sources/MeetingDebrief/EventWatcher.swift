@@ -57,6 +57,13 @@ final class EventWatcher: ObservableObject {
     private let promptedDefaultsKey = "promptedOccurrences"
 
     func start() {
+        if DemoData.isEnabled {
+            let events = DemoData.buildAndSeed(store: store)
+            DebriefStore.shared.reload()
+            self.events = events.sorted { $0.startDate < $1.startDate }
+            authorization = .granted
+            return
+        }
         Task {
             do {
                 let granted = try await store.requestFullAccessToEvents()
@@ -213,6 +220,7 @@ final class EventWatcher: ObservableObject {
     /// The client a meeting belongs to: the most frequent external attendee
     /// domain, or nil for internal meetings.
     nonisolated static func clientDomain(of event: EKEvent) -> String? {
+        if DemoData.isEnabled { return DemoData.client(for: event) }
         guard let attendees = event.attendees else { return nil }
         var counts: [String: Int] = [:]
         for attendee in attendees where attendee.participantType == .person {
