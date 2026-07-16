@@ -86,6 +86,25 @@ both read the same Exchange calendar).
 
 ---
 
+## Install a downloaded build
+
+A prebuilt **universal** `.app` (Apple Silicon + Intel) is attached to each
+[GitHub Release](../../releases). It is **not notarized** — it's an open-source
+personal project, not a paid Apple-distributed app — so macOS Gatekeeper will
+warn you the first time you open it. This is expected; here's how:
+
+1. Download `MeetingDebrief.zip` from the latest release and unzip it (double-click).
+2. **Right-click** `MeetingDebrief.app` → **Open** → **Open** in the dialog.
+   (A plain double-click only offers "Move to Trash" — you must use right-click → Open.)
+3. If that's blocked (common on managed/corporate Macs), run once in Terminal:
+   ```sh
+   xattr -dr com.apple.quarantine /path/to/MeetingDebrief.app
+   ```
+   then open it normally.
+
+On first launch, grant **Calendar** access when asked. Prefer building from
+source? See below — a source build has no Gatekeeper prompt.
+
 ## Build & run
 
 ```sh
@@ -97,6 +116,9 @@ open dist/MeetingDebrief.app
 `dist/MeetingDebrief.app`. It signs with your **Apple Development** certificate
 if you have one (recommended — see [Code signing](#code-signing-matters)),
 otherwise falls back to an ad-hoc signature.
+
+To produce a distributable artifact (universal binary, ad-hoc signed, zipped for
+a GitHub Release) run `./release.sh`, which writes `dist/MeetingDebrief.zip`.
 
 On first launch, macOS will ask for **Calendar** access — click *Allow Full
 Access*. The menu bar gains a calendar icon (today's remaining meetings, a

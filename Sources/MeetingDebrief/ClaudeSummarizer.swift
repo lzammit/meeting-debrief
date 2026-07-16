@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 enum KeychainHelper {
-    private static let service = "com.luzammi.meetingdebrief"
+    private static let service = "com.meetingdebrief.app"
     private static let account = "anthropic-api-key"
 
     /// ANTHROPIC_API_KEY from the environment wins (useful when launched from

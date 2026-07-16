@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.luzammi.meetingdebrief</string>
+	<string>com.meetingdebrief.app</string>
 	<key>CFBundleName</key>
 	<string>MeetingDebrief</string>
 	<key>CFBundleDisplayName</key>

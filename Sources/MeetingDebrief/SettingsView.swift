@@ -37,9 +37,9 @@ struct SettingsView: View {
             }
 
             Section("Client detection") {
-                TextField("Internal domains", text: $internalDomains, prompt: Text("inverse.ca, consultant.com"))
+                TextField("Internal domains", text: $internalDomains, prompt: Text("yourcompany.com, contractor.com"))
                     .onSubmit { EventWatcher.shared.refresh() }
-                Text("Comma-separated email domains to ignore when identifying a meeting's client — teammates, contractors, bots. akamai.com and webex.com (including subdomains) are always ignored.")
+                Text("Your organization's email domain(s), comma-separated, so they're not mistaken for a client — teammates, contractors, bots. webex.com (including subdomains) is always ignored.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

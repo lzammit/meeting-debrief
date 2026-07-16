@@ -371,7 +371,7 @@ final class SystemAudioTapCapture: SystemAudioCapturing {
         // 3. Private aggregate device that carries the tap.
         let aggregateDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey as String: "MeetingDebrief Tap",
-            kAudioAggregateDeviceUIDKey as String: "com.luzammi.meetingdebrief.tap",
+            kAudioAggregateDeviceUIDKey as String: "com.meetingdebrief.app.tap",
             kAudioAggregateDeviceIsPrivateKey as String: true,
             kAudioAggregateDeviceTapAutoStartKey as String: true,
             kAudioAggregateDeviceTapListKey as String: [

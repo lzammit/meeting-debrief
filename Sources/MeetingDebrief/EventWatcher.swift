@@ -183,12 +183,11 @@ final class EventWatcher: ObservableObject {
         reload()
     }
 
-    /// Domains that identify us (or meeting infrastructure) rather than a
-    /// client. Built-ins plus the user-configured list from Settings;
-    /// matching includes subdomains (webex.com also covers
-    /// akamai.calendar.webex.com).
+    /// Domains that identify meeting infrastructure (not a client). Add your
+    /// own organization's domain(s) in Settings → Client detection. Matching
+    /// includes subdomains (webex.com also covers *.calendar.webex.com).
     private nonisolated static var internalDomainEntries: Set<String> {
-        var entries: Set<String> = ["akamai.com", "webex.com", "webex.bot"]
+        var entries: Set<String> = ["webex.com", "webex.bot"]
         let stored = UserDefaults.standard.string(forKey: "internalDomains") ?? ""
         for raw in stored.lowercased().components(separatedBy: CharacterSet(charactersIn: ", ;")) {
             let entry = raw.trimmingCharacters(in: .whitespaces)
@@ -201,7 +200,7 @@ final class EventWatcher: ObservableObject {
         internalDomainEntries.contains { domain == $0 || domain.hasSuffix("." + $0) }
     }
 
-    /// External (non-Akamai) email domains of an event's attendees.
+    /// External (non-internal) email domains of an event's attendees.
     nonisolated static func externalDomains(of event: EKEvent) -> Set<String> {
         guard let attendees = event.attendees else { return [] }
         var domains: Set<String> = []
