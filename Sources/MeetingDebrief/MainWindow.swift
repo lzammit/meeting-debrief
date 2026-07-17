@@ -7,6 +7,13 @@ enum AttendanceFilter: String, CaseIterable {
     case noShow = "No-show"
 }
 
+/// Which meetings to display relative to now.
+enum TimeScope: String, CaseIterable {
+    case all = "All"
+    case upcoming = "Upcoming"
+    case past = "Past"
+}
+
 struct MainWindowView: View {
     @EnvironmentObject var watcher: EventWatcher
     @EnvironmentObject var store: DebriefStore
@@ -16,12 +23,13 @@ struct MainWindowView: View {
     /// sidebar range.
     @State private var externalEvent: EKEvent?
     @State private var attendanceFilter: AttendanceFilter = .all
+    @State private var timeScope: TimeScope = .all
     @State private var tagFilter: String?
     @State private var searchText = ""
     /// Ticks every 30s so the "happening now" highlight tracks the clock.
     @State private var now = Date()
     private let clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
-    @AppStorage("showPastFirst") private var showPastFirst = false
+    @AppStorage("sortNewestFirst") private var sortNewestFirst = false
 
     /// The meeting in progress right now, if any.
     private var currentKey: String? {
@@ -41,6 +49,11 @@ struct MainWindowView: View {
     private var filteredEvents: [EKEvent] {
         watcher.events.filter { event in
             let key = occurrenceKey(for: event)
+            switch timeScope {
+            case .all: break
+            case .upcoming: guard event.endDate > now else { return false }
+            case .past: guard event.endDate <= now else { return false }
+            }
             switch attendanceFilter {
             case .all: break
             case .showed: guard store.attendance(for: key) == .showed else { return false }
@@ -71,22 +84,14 @@ struct MainWindowView: View {
         Dictionary(watcher.events.map { (occurrenceKey(for: $0), $0) }) { first, _ in first }
     }
 
-    /// Events grouped by day. Default order: today first, then future days
-    /// ascending, then past days descending (most recent first). With
-    /// "Past first" enabled, the past block moves above today/future.
+    /// Events grouped by day as a chronological timeline: oldest at the top,
+    /// flowing down through today into the future. "Newest first" reverses it.
     private var sections: [(day: Date, label: String, events: [EKEvent])] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let grouped = Dictionary(grouping: filteredEvents) { calendar.startOfDay(for: $0.startDate) }
-        let days = grouped.keys.sorted { a, b in
-            let (da, db) = (a.timeIntervalSince(today), b.timeIntervalSince(today))
-            if (da >= 0) != (db >= 0) { return da >= 0 }   // today/future before past
-            return da >= 0 ? da < db : da > db
-        }
-        let ordered = showPastFirst
-            ? days.filter { $0 < today } + days.filter { $0 >= today }
-            : days
-        return ordered.map { day in
+        let days = grouped.keys.sorted(by: sortNewestFirst ? (>) : (<))
+        return days.map { day in
             (day, Self.label(for: day, today: today), grouped[day]!.sorted { $0.startDate < $1.startDate })
         }
     }
@@ -103,7 +108,17 @@ struct MainWindowView: View {
                 } else if watcher.events.isEmpty {
                     ContentUnavailableView("No meetings", systemImage: "calendar", description: Text("No events in the past or next 7 days."))
                 } else {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 6) {
+                        Picker("Time scope", selection: $timeScope) {
+                            ForEach(TimeScope.allCases, id: \.self) { scope in
+                                Text(scope.rawValue).tag(scope)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .padding(.horizontal, 10)
+                        .padding(.top, 8)
+
                         Picker("Attendance filter", selection: $attendanceFilter) {
                             ForEach(AttendanceFilter.allCases, id: \.self) { filter in
                                 Text(filter.rawValue).tag(filter)
@@ -112,7 +127,7 @@ struct MainWindowView: View {
                         .pickerStyle(.segmented)
                         .labelsHidden()
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
+                        .padding(.bottom, 8)
 
                         if filteredEvents.isEmpty {
                             ContentUnavailableView(
@@ -121,30 +136,36 @@ struct MainWindowView: View {
                                 description: Text("No meetings match the current search and filters.")
                             )
                         } else {
-                            List(selection: Binding(
-                                get: { selection },
-                                set: { newValue in
-                                    selection = newValue
-                                    externalEvent = nil
-                                }
-                            )) {
-                                ForEach(sections, id: \.day) { section in
-                                    Section(section.label) {
-                                        ForEach(section.events, id: \.self) { event in
-                                            let key = occurrenceKey(for: event)
-                                            MeetingRow(
-                                                event: event,
-                                                entryCount: combinedEntryCount(for: key),
-                                                attendance: store.attendance(for: key),
-                                                isRecording: recorder.isRecording(key),
-                                                tags: store.tags(for: key),
-                                                isCurrent: key == currentKey,
-                                                isNext: currentKey == nil && key == nextKey
-                                            )
-                                            .tag(key)
+                            ScrollViewReader { proxy in
+                                List(selection: Binding(
+                                    get: { selection },
+                                    set: { newValue in
+                                        selection = newValue
+                                        externalEvent = nil
+                                    }
+                                )) {
+                                    ForEach(sections, id: \.day) { section in
+                                        Section(section.label) {
+                                            ForEach(section.events, id: \.self) { event in
+                                                let key = occurrenceKey(for: event)
+                                                MeetingRow(
+                                                    event: event,
+                                                    entryCount: combinedEntryCount(for: key),
+                                                    attendance: store.attendance(for: key),
+                                                    isRecording: recorder.isRecording(key),
+                                                    tags: store.tags(for: key),
+                                                    isCurrent: key == currentKey,
+                                                    isNext: currentKey == nil && key == nextKey
+                                                )
+                                                .tag(key)
+                                            }
                                         }
+                                        .id(section.day)
                                     }
                                 }
+                                .onAppear { scrollToToday(proxy) }
+                                .onChange(of: timeScope) { _, _ in scrollToToday(proxy) }
+                                .onChange(of: sortNewestFirst) { _, _ in scrollToToday(proxy) }
                             }
                         }
                     }
@@ -164,12 +185,12 @@ struct MainWindowView: View {
             }
             .toolbar {
                 ToolbarItem {
-                    Picker("Order", selection: $showPastFirst) {
-                        Label("Upcoming first", systemImage: "arrow.forward.circle").tag(false)
-                        Label("Past first", systemImage: "arrow.backward.circle").tag(true)
+                    Picker("Order", selection: $sortNewestFirst) {
+                        Label("Oldest first", systemImage: "arrow.down").tag(false)
+                        Label("Newest first", systemImage: "arrow.up").tag(true)
                     }
                     .pickerStyle(.menu)
-                    .help("Show upcoming or past meetings at the top of the list")
+                    .help("Timeline order: oldest (past) on top, or newest on top")
                 }
                 ToolbarItem {
                     Menu {
@@ -219,6 +240,20 @@ struct MainWindowView: View {
         }
         .navigationTitle("MeetingDebrief")
         .onReceive(clock) { now = $0 }
+    }
+
+    /// In the chronological timeline, land the view on today (or the nearest
+    /// day) so past sits above and upcoming below, without manual scrolling.
+    private func scrollToToday(_ proxy: ScrollViewProxy) {
+        let today = Calendar.current.startOfDay(for: Date())
+        let days = sections.map(\.day)
+        guard !days.isEmpty else { return }
+        let target = days.first(where: { $0 == today })
+            ?? days.filter { $0 <= today }.max()
+            ?? days.min()!
+        DispatchQueue.main.async {
+            withAnimation(.none) { proxy.scrollTo(target, anchor: .top) }
+        }
     }
 
     /// Notes for a meeting plus any duplicate bookings merged into it.
