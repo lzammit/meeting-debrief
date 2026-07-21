@@ -3,14 +3,10 @@ import Security
 
 enum KeychainHelper {
     private static let service = "com.meetingdebrief.app"
-    private static let account = "anthropic-api-key"
+    private static let apiKeyAccount = "anthropic-api-key"
+    private static let syncTokenAccount = "debrief-sync-token"
 
-    /// ANTHROPIC_API_KEY from the environment wins (useful when launched from
-    /// a terminal); otherwise the key saved in the Keychain.
-    static func loadAPIKey() -> String? {
-        if let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !env.isEmpty {
-            return env
-        }
+    private static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -21,38 +17,50 @@ enum KeychainHelper {
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
               let data = item as? Data,
-              let key = String(data: data, encoding: .utf8),
-              !key.isEmpty else { return nil }
-        return key
+              let value = String(data: data, encoding: .utf8),
+              !value.isEmpty else { return nil }
+        return value
     }
 
-    /// Returns false when the Keychain rejects the write (e.g. a stale item
-    /// saved by a differently-signed build is blocking the slot).
     @discardableResult
-    static func saveAPIKey(_ key: String) -> Bool {
+    private static func save(_ value: String, account: String) -> Bool {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        guard !key.isEmpty else {
+        guard !value.isEmpty else {
             SecItemDelete(base as CFDictionary)
             return true
         }
-        let payload = [kSecValueData as String: Data(key.utf8)] as CFDictionary
-
-        // Update in place when an item exists and is ours.
-        let updateStatus = SecItemUpdate(base as CFDictionary, payload)
-        if updateStatus == errSecSuccess { return true }
-
-        // Otherwise clear whatever occupies the slot and write fresh.
+        let payload = [kSecValueData as String: Data(value.utf8)] as CFDictionary
+        if SecItemUpdate(base as CFDictionary, payload) == errSecSuccess { return true }
         SecItemDelete(base as CFDictionary)
         var add = base
-        add[kSecValueData as String] = Data(key.utf8)
+        add[kSecValueData as String] = Data(value.utf8)
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
+    /// ANTHROPIC_API_KEY from the environment wins (useful when launched from
+    /// a terminal); otherwise the key saved in the Keychain.
+    static func loadAPIKey() -> String? {
+        if let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !env.isEmpty {
+            return env
+        }
+        return load(account: apiKeyAccount)
+    }
+
+    /// Returns false when the Keychain rejects the write.
+    @discardableResult
+    static func saveAPIKey(_ key: String) -> Bool { save(key, account: apiKeyAccount) }
+
     static var hasAPIKey: Bool { loadAPIKey() != nil }
+
+    // Sync token for the iPhone-companion bridge.
+    static func loadSyncToken() -> String? { load(account: syncTokenAccount) }
+    @discardableResult
+    static func saveSyncToken(_ token: String) -> Bool { save(token, account: syncTokenAccount) }
+    static var hasSyncToken: Bool { loadSyncToken() != nil }
 }
 
 enum SummarizerError: LocalizedError {

@@ -26,6 +26,8 @@ struct MainWindowView: View {
     @State private var timeScope: TimeScope = .all
     @State private var tagFilter: String?
     @State private var searchText = ""
+    /// Bumped by the "Today" button to re-scroll the timeline to today.
+    @State private var scrollTick = 0
     /// Ticks every 30s so the "happening now" highlight tracks the clock.
     @State private var now = Date()
     private let clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -109,13 +111,24 @@ struct MainWindowView: View {
                     ContentUnavailableView("No meetings", systemImage: "calendar", description: Text("No events in the past or next 7 days."))
                 } else {
                     VStack(spacing: 6) {
-                        Picker("Time scope", selection: $timeScope) {
-                            ForEach(TimeScope.allCases, id: \.self) { scope in
-                                Text(scope.rawValue).tag(scope)
+                        HStack(spacing: 6) {
+                            Picker("Time scope", selection: $timeScope) {
+                                ForEach(TimeScope.allCases, id: \.self) { scope in
+                                    Text(scope.rawValue).tag(scope)
+                                }
                             }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+
+                            Button {
+                                if timeScope != .all { timeScope = .all }
+                                scrollTick += 1
+                            } label: {
+                                Label("Today", systemImage: "smallcircle.filled.circle")
+                            }
+                            .help("Jump to today in the timeline")
+                            .fixedSize()
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
                         .padding(.horizontal, 10)
                         .padding(.top, 8)
 
@@ -166,6 +179,7 @@ struct MainWindowView: View {
                                 .onAppear { scrollToToday(proxy) }
                                 .onChange(of: timeScope) { _, _ in scrollToToday(proxy) }
                                 .onChange(of: sortNewestFirst) { _, _ in scrollToToday(proxy) }
+                                .onChange(of: scrollTick) { _, _ in scrollToToday(proxy) }
                             }
                         }
                     }

@@ -131,6 +131,13 @@ final class DebriefStore: ObservableObject {
         if let data = try? encoder.encode(meetingTags) {
             try? data.write(to: tagsURL)
         }
+        queueSync()
+    }
+
+    /// Push debrief changes to the iPhone companion (unless in demo mode).
+    private func queueSync() {
+        guard !DemoData.isEnabled else { return }
+        SyncManager.shared.scheduleUpload()
     }
 
     /// Re-read all stores from disk (used after demo seeding).
@@ -159,6 +166,7 @@ final class DebriefStore: ObservableObject {
         if let data = try? encoder.encode(attendance) {
             try? data.write(to: attendanceURL)
         }
+        queueSync()
     }
 
     private func persist() {
@@ -169,5 +177,6 @@ final class DebriefStore: ObservableObject {
         if let data = try? encoder.encode(entries) {
             try? data.write(to: fileURL)
         }
+        queueSync()
     }
 }

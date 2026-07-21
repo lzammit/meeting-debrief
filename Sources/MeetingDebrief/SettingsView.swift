@@ -4,6 +4,10 @@ struct SettingsView: View {
     @State private var apiKey = ""
     @State private var savedFeedback: String?
     @State private var saveFailed = false
+    @State private var syncURL = ""
+    @State private var syncUser = ""
+    @State private var syncPassword = ""
+    @StateObject private var sync = SyncManager.shared
     @AppStorage("autoRecordMeetings") private var autoRecord = false
     @AppStorage("pastWindowDays") private var pastWindowDays = 30
     @AppStorage("internalDomains") private var internalDomains = ""
@@ -76,6 +80,55 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                TextField("Sync URL", text: $syncURL, prompt: Text("https://example.com/api/debrief/sync"))
+                    .textContentType(.URL)
+                    .autocorrectionDisabled()
+                    .onChange(of: syncURL) { _, newValue in
+                        UserDefaults.standard.set(
+                            newValue.trimmingCharacters(in: .whitespaces),
+                            forKey: SyncManager.urlDefaultsKey)
+                    }
+                if KeychainHelper.hasSyncToken {
+                    HStack(spacing: 10) {
+                        Label("Signed in", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Button("Sync now") {
+                            Task { await sync.syncNow(manual: true) }
+                        }
+                        .disabled(sync.syncing)
+                        if sync.syncing { ProgressView().controlSize(.small) }
+                        Spacer()
+                        Button("Log out") {
+                            sync.logOut()
+                            syncUser = ""; syncPassword = ""
+                        }
+                    }
+                } else {
+                    TextField("Username", text: $syncUser)
+                        .autocorrectionDisabled()
+                    SecureField("Password", text: $syncPassword)
+                        .onSubmit { logIn() }
+                    HStack(spacing: 10) {
+                        Button("Log in") { logIn() }
+                            .disabled(syncURL.trimmingCharacters(in: .whitespaces).isEmpty
+                                      || syncUser.trimmingCharacters(in: .whitespaces).isEmpty
+                                      || syncPassword.isEmpty || sync.syncing)
+                        if sync.syncing { ProgressView().controlSize(.small) }
+                    }
+                }
+                Label(sync.lastStatus,
+                      systemImage: KeychainHelper.hasSyncToken ? "arrow.triangle.2.circlepath" : "iphone.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("iPhone sync")
+            } footer: {
+                Text("Log in with the account you created in the iPhone app to sync meeting notes, summaries, tags, attendance, and transcript text (no audio) to your self-hosted endpoint. Uploads automatically a few seconds after any change and every 5 minutes. The token is stored securely in your Keychain.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Recording") {
                 Toggle("Auto-record meetings", isOn: $autoRecord)
                     .onChange(of: autoRecord) { _, _ in
@@ -106,6 +159,19 @@ struct SettingsView: View {
         .frame(width: 480)
         .onAppear {
             apiKey = KeychainHelper.loadAPIKey() ?? ""
+            let stored = UserDefaults.standard.string(forKey: SyncManager.urlDefaultsKey) ?? ""
+            syncURL = stored.isEmpty ? "https://booking.packetfence.net/api/debrief/sync" : stored
+        }
+    }
+
+    private func logIn() {
+        let url = syncURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let user = syncUser.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty, !user.isEmpty, !syncPassword.isEmpty else { return }
+        UserDefaults.standard.set(url, forKey: SyncManager.urlDefaultsKey)
+        Task {
+            let ok = await sync.logIn(username: user, password: syncPassword)
+            if ok { syncPassword = "" }
         }
     }
 

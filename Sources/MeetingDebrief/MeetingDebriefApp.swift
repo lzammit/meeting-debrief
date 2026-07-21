@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in
             EventWatcher.shared.start()
+            SyncManager.shared.start()
         }
     }
 

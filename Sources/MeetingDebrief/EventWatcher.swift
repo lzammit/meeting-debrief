@@ -122,6 +122,10 @@ final class EventWatcher: ObservableObject {
         events = merged.primaries
         duplicateAliases = merged.aliases
 
+        // Now that the calendar is loaded, push an up-to-date bundle to the
+        // iPhone companion (queued/debounced; skipped in demo mode).
+        if !DemoData.isEnabled { SyncManager.shared.scheduleUpload() }
+
         timers.forEach { $0.invalidate() }
         timers = []
         pruneOldPromptedRecords()
