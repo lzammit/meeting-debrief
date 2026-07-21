@@ -88,22 +88,18 @@ both read the same Exchange calendar).
 
 ## Install a downloaded build
 
-A prebuilt **universal** `.app` (Apple Silicon + Intel) is attached to each
-[GitHub Release](../../releases). It is **not notarized** — it's an open-source
-personal project, not a paid Apple-distributed app — so macOS Gatekeeper will
-warn you the first time you open it. This is expected; here's how:
+A prebuilt **universal** app (Apple Silicon + Intel) is attached to each
+[GitHub Release](../../releases). It is **Developer ID signed and notarized by
+Apple**, so it opens like any other Mac app — no Gatekeeper warnings.
 
-1. Download `MeetingDebrief.zip` from the latest release and unzip it (double-click).
-2. **Right-click** `MeetingDebrief.app` → **Open** → **Open** in the dialog.
-   (A plain double-click only offers "Move to Trash" — you must use right-click → Open.)
-3. If that's blocked (common on managed/corporate Macs), run once in Terminal:
-   ```sh
-   xattr -dr com.apple.quarantine /path/to/MeetingDebrief.app
-   ```
-   then open it normally.
+1. Download `MeetingDebrief-<version>.dmg` from the latest release.
+2. Open it and drag **MeetingDebrief** into **Applications**.
+3. Launch it from Applications.
 
-On first launch, grant **Calendar** access when asked. Prefer building from
-source? See below — a source build has no Gatekeeper prompt.
+On first launch, grant **Calendar** access when asked.
+
+> Releases before 0.1.2 were unsigned; if you're on one of those, delete it and
+> install a current release normally.
 
 ## Build & run
 
@@ -117,8 +113,11 @@ open dist/MeetingDebrief.app
 if you have one (recommended — see [Code signing](#code-signing-matters)),
 otherwise falls back to an ad-hoc signature.
 
-To produce a distributable artifact (universal binary, ad-hoc signed, zipped for
-a GitHub Release) run `./release.sh`, which writes `dist/MeetingDebrief.zip`.
+To produce the distributable artifacts (universal binary, Developer ID signed,
+notarized, stapled; packaged as a DMG and a zip) run `./release.sh`. It needs a
+one-time setup — a **Developer ID Application** certificate in your keychain and
+notarization credentials stored via `xcrun notarytool store-credentials notary`
+(both explained in the script header).
 
 On first launch, macOS will ask for **Calendar** access — click *Allow Full
 Access*. The menu bar gains a calendar icon (today's remaining meetings, a
