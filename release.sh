@@ -44,6 +44,9 @@ APP="dist/MeetingDebrief.app"
 DMG="dist/MeetingDebrief-$VERSION.dmg"
 ZIP="dist/MeetingDebrief-$VERSION.zip"
 rm -rf "$APP" "$DMG" "$ZIP" dist/dmg-staging
+# Unversioned zip left behind by pre-0.1.2 releases: unsigned, and easy to
+# attach to a release by mistake now that artifact names carry the version.
+rm -f dist/MeetingDebrief.zip
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/apple/Products/Release/MeetingDebrief "$APP/Contents/MacOS/MeetingDebrief"
 cp Info.plist "$APP/Contents/Info.plist"
