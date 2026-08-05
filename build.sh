@@ -15,7 +15,14 @@ cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # Sign with a real identity when available — TCC permissions (calendar, mic,
 # screen/system-audio recording) are tied to the code signature, and an ad-hoc
 # signature changes every build, silently invalidating granted permissions.
-IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')
+# Prefer the Developer ID cert (same identity release.sh uses): a dev build
+# and an installed release then share one signature, so privacy grants stick
+# when switching between them instead of resetting on every swap.
+IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+  | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+if [ -z "$IDENTITY" ]; then
+  IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')
+fi
 if [ -n "$IDENTITY" ]; then
   codesign --force --sign "$IDENTITY" "$APP"
   echo "Signed with: $IDENTITY"
