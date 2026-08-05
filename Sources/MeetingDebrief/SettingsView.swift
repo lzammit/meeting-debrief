@@ -11,7 +11,7 @@ struct SettingsView: View {
     @AppStorage("autoRecordMeetings") private var autoRecord = false
     @AppStorage("pastWindowDays") private var pastWindowDays = 30
     @AppStorage("internalDomains") private var internalDomains = ""
-    @AppStorage("micEchoCancellation") private var micEchoCancellation = true
+    @AppStorage("micEchoCancellation") private var micEchoCancellation = false
     @AppStorage("autoRecordWeekdaysOnly") private var autoRecordWeekdaysOnly = false
     @AppStorage("systemAudioUseTap") private var systemAudioUseTap = false
 
@@ -149,8 +149,8 @@ struct SettingsView: View {
                 Text("The tap avoids the screen-recording permission but interferes with Webex/Teams echo cancellation — clients hear you “from afar” while recording. Leave it off: the default ScreenCaptureKit capture doesn't touch call audio.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Toggle("Echo-cancel microphone while recording", isOn: $micEchoCancellation)
-                Text("Keeps participants' voices out of your “Me” stream on speaker calls, at the cost of slightly lowered system volume while recording. If anyone ever says your voice sounds degraded while recording, turn this off — Me/Them labels are then cleaned up at transcription time instead (duplicated sentences are dropped from “Me”).")
+                Toggle("Echo-cancel microphone while recording (not recommended)", isOn: $micEchoCancellation)
+                Text("Keeps participants' voices out of your “Me” stream on speaker calls, but degrades how you sound to others on live calls (they hear you dimmed) and lowers system volume while recording. Leave it off — Me/Them labels are cleaned up at transcription time instead (duplicated sentences are dropped from “Me”).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -18,10 +18,16 @@ struct MeetingDebriefApp: App {
         }
         .defaultSize(width: 940, height: 640)
 
-        MenuBarExtra("MeetingDebrief", systemImage: "calendar.badge.checkmark") {
+        MenuBarExtra {
             MenuContent()
                 .environmentObject(watcher)
                 .environmentObject(recorder)
+        } label: {
+            // Turn the icon into a warning when meetings would record without
+            // the other participants (capture approval missing/expired).
+            Image(systemName: recorder.captureApprovalMissing
+                  ? "calendar.badge.exclamationmark"
+                  : "calendar.badge.checkmark")
         }
         .menuBarExtraStyle(.menu)
 
@@ -36,6 +42,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             EventWatcher.shared.start()
             SyncManager.shared.start()
+            promptForCaptureApprovalIfNeeded()
+        }
+    }
+
+    /// macOS drops the Screen & System Audio Recording approval periodically;
+    /// recordings then silently lose the other participants. Launch is an
+    /// interactive moment — re-ask here instead of failing mid-meeting.
+    /// Only nags people who actually record meetings.
+    @MainActor
+    private func promptForCaptureApprovalIfNeeded() {
+        RecordingManager.shared.refreshCaptureApproval()
+        guard RecordingManager.shared.captureApprovalMissing,
+              RecordingManager.hasEverRecorded else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Approve system audio capture"
+        alert.informativeText = "macOS requires re-approving Screen & System Audio Recording from time to time. Until then, recorded meetings only capture your microphone — other participants are missing from transcripts."
+        alert.addButton(withTitle: "Approve…")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            if !CGRequestScreenCaptureAccess() {
+                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+                NSWorkspace.shared.open(url)
+            }
+            RecordingManager.shared.refreshCaptureApproval()
         }
     }
 
@@ -43,6 +75,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // end-of-meeting popups still fire.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    // Clears the menu-bar warning as soon as capture is re-approved in
+    // System Settings and the user comes back to the app.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            RecordingManager.shared.refreshCaptureApproval()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -102,8 +142,23 @@ struct MenuContent: View {
             Toggle("Auto-record meetings", isOn: autoRecordBinding)
             if case .recording(_, let title, _) = recorder.state {
                 Text("● Recording: \(title)")
+                if recorder.systemAudioError != nil {
+                    Text("⚠️ Only your mic — other participants aren't captured")
+                }
                 Button("Stop recording") {
                     recorder.stopRecording(manual: true)
+                }
+            }
+            if recorder.captureApprovalMissing {
+                Text("⚠️ System audio capture needs approval")
+                Button("Approve system audio capture…") {
+                    // Shows the system prompt when possible; falls back to the
+                    // Screen & System Audio Recording privacy pane.
+                    if !CGRequestScreenCaptureAccess() {
+                        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+                        NSWorkspace.shared.open(url)
+                    }
+                    recorder.refreshCaptureApproval()
                 }
             }
 

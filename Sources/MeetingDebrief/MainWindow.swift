@@ -871,7 +871,7 @@ struct MeetingDetailView: View {
                         .foregroundStyle(.orange)
                 }
                 if recorder.micAudioError == nil, recorder.systemAudioError == nil {
-                    Text("Capturing your mic (echo-cancelled) and system audio — participants will be labeled “Them”.")
+                    Text("Capturing your mic and system audio — participants will be labeled “Them”.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

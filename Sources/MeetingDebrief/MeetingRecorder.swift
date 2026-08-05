@@ -1,9 +1,11 @@
 import Foundation
+import Accelerate
 import AVFoundation
 import CoreAudio
 import CoreMedia
 import ScreenCaptureKit
 import AppKit
+import UserNotifications
 
 protocol SystemAudioCapturing: AnyObject {
     func stop() async
@@ -37,6 +39,23 @@ final class RecordingManager: ObservableObject {
     @Published var systemAudioError: String?
     /// Why the microphone isn't being captured, if it failed.
     @Published var micAudioError: String?
+    /// True when the next recording would run without system audio because
+    /// the Screen & System Audio Recording permission is missing or expired
+    /// (macOS re-requires approval periodically). Drives the menu-bar warning.
+    @Published var captureApprovalMissing = false
+
+    func refreshCaptureApproval() {
+        let useTap = UserDefaults.standard.bool(forKey: "systemAudioUseTap")
+        captureApprovalMissing = !useTap && !CGPreflightScreenCaptureAccess()
+    }
+
+    /// Whether any meeting has ever been recorded — used to avoid nagging
+    /// people who don't use recording at all.
+    nonisolated static var hasEverRecorded: Bool {
+        let recordings = NotesStore.folderURL.appendingPathComponent("recordings", isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: recordings.path)) ?? []
+        return !entries.isEmpty
+    }
 
     private var micCapture: MicCapture?
     private var systemCapture: SystemAudioCapturing?
@@ -107,10 +126,12 @@ final class RecordingManager: ObservableObject {
         }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
-        // Mic with echo cancellation: audio playing from the speakers (the
-        // other participants) is subtracted, so this stream is only "Me" —
-        // even on built-in speakers + mic.
-        let echoCancellation = UserDefaults.standard.object(forKey: "micEchoCancellation") as? Bool ?? true
+        // Mic capture is inert by default: the echo-cancelling voice-processing
+        // mode fights conference apps for the mic and makes the user sound
+        // degraded to other participants on live calls (confirmed on a real
+        // call), so it's opt-in. Speaker bleed into "Me" is cleaned up at
+        // transcription time instead.
+        let echoCancellation = UserDefaults.standard.object(forKey: "micEchoCancellation") as? Bool ?? false
         let mic = MicCapture()
         do {
             try mic.start(
@@ -153,9 +174,31 @@ final class RecordingManager: ObservableObject {
         } catch {
             systemCapture = nil
             systemAudioError = "System audio is NOT being captured — other participants won't be recorded. (\(error.localizedDescription))"
+            // This failure used to be visible only inside the expanded meeting
+            // card, so whole meetings lost the "Them" side unnoticed. Make it
+            // loud: a notification now, and the menu-bar warning via
+            // captureApprovalMissing below.
+            notifyDegradedRecording(title: title)
         }
+        refreshCaptureApproval()
 
         state = .recording(occurrenceKey: occurrenceKey, title: title, startedAt: Date())
+    }
+
+    private func notifyDegradedRecording(title: String) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Recording without other participants"
+            content.body = "System audio capture failed — “\(title)” will only include your side. Click the MeetingDebrief menu-bar icon to re-approve capture."
+            content.sound = .default
+            center.add(UNNotificationRequest(
+                identifier: "degraded-recording-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            ))
+        }
     }
 
     func stopRecording(manual: Bool = false) {
@@ -231,52 +274,49 @@ final class RecordingManager: ObservableObject {
 }
 
 /// Records the microphone. Two modes:
-/// - Echo-cancelled (voice processing): keeps speaker audio out of the "Me"
-///   stream, but interferes with conference apps that run their own audio
-///   pipeline.
-/// - Plain (AVAudioRecorder): completely inert — the same lightweight path a
-///   voice-memo app uses. Conference apps keep full control of the mic;
-///   speaker audio may bleed into "Me" unless a headset is used.
+/// - Plain (default): inert — the mic is observed without changing its
+///   processing mode, so conference apps keep full control and the user's
+///   live call audio is untouched. Speaker audio may bleed into "Me" unless
+///   a headset is used (duplicates are dropped at transcription time).
+/// - Echo-cancelled (voice processing, opt-in): keeps speaker audio out of
+///   the "Me" stream, but the voice-processing unit fights conference apps
+///   for the mic — confirmed to make the user sound "feeble" to other
+///   participants on live calls, and it ducks system volume.
+/// Both modes apply adaptive makeup gain (see the tap below).
 final class MicCapture {
     private var engine: AVAudioEngine?
     private var file: AVAudioFile?
-    private var recorder: AVAudioRecorder?
+
+    /// The voice-processing unit outputs speech at a very low level (measured
+    /// around -50 dBFS median on conference calls, vs ~-22 dBFS for healthy
+    /// speech), which cripples transcription. Adaptive makeup gain, applied
+    /// in the tap: follow the speech level, lift it toward the target.
+    private var agcGain: Float = 1
+    private static let agcTargetRMS: Float = 0.08   // ≈ -22 dBFS
+    private static let agcMaxGain: Float = 32       // +30 dB ceiling
+    private static let agcNoiseGate: Float = 0.0015 // ≈ -56 dBFS: silence, hold gain
 
     func start(outputURL: URL, voiceProcessing: Bool) throws {
         try? FileManager.default.removeItem(at: outputURL)
 
-        guard voiceProcessing else {
-            let settings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 48000,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-            ]
-            let recorder = try AVAudioRecorder(url: outputURL, settings: settings)
-            guard recorder.record() else {
-                throw NSError(domain: "MicCapture", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "The microphone recorder failed to start."
-                ])
-            }
-            self.recorder = recorder
-            return
-        }
-
         let engine = AVAudioEngine()
         self.engine = engine
         let input = engine.inputNode
-        try input.setVoiceProcessingEnabled(true)
-        // Voice processing normally ducks (lowers) all other audio, like a
-        // phone call would. Keep the echo cancellation but don't touch the
-        // system volume.
-        input.voiceProcessingOtherAudioDuckingConfiguration = AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
-            enableAdvancedDucking: false,
-            duckingLevel: .min
-        )
+        if voiceProcessing {
+            try input.setVoiceProcessingEnabled(true)
+            // Voice processing normally ducks (lowers) all other audio, like a
+            // phone call would. Keep the echo cancellation but don't touch the
+            // system volume.
+            input.voiceProcessingOtherAudioDuckingConfiguration = AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                enableAdvancedDucking: false,
+                duckingLevel: .min
+            )
+        }
         let format = input.outputFormat(forBus: 0)
-        // Voice processing exposes a multi-channel format (processed voice
-        // plus internal reference channels). Channel 0 is the cleaned voice —
-        // record that as mono; AAC can't encode the raw 9-channel stream.
+        // Record channel 0 as mono. In plain mode that's simply the mic; with
+        // voice processing the format is multi-channel (processed voice plus
+        // internal reference channels) and channel 0 is the cleaned voice —
+        // AAC couldn't encode the raw 9-channel stream anyway.
         guard let monoFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: format.sampleRate,
@@ -301,7 +341,22 @@ final class MicCapture {
                   let mono = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameLength),
                   let destination = mono.floatChannelData?[0] else { return }
             mono.frameLength = buffer.frameLength
-            destination.update(from: source, count: Int(buffer.frameLength))
+            let frames = vDSP_Length(buffer.frameLength)
+
+            // Follow the speech level only while there is signal (holding the
+            // gain through silence), move 10% per buffer (~85 ms) so the gain
+            // settles over a couple of seconds instead of pumping.
+            var rms: Float = 0
+            vDSP_rmsqv(source, 1, &rms, frames)
+            if rms > Self.agcNoiseGate {
+                let desired = min(Self.agcTargetRMS / rms, Self.agcMaxGain)
+                self.agcGain += (desired - self.agcGain) * 0.1
+            }
+            // Limit per buffer: a transient must never clip after the boost.
+            var peak: Float = 0
+            vDSP_maxmgv(source, 1, &peak, frames)
+            var gain = peak > 0 ? min(self.agcGain, 0.98 / peak) : self.agcGain
+            vDSP_vsmul(source, 1, &gain, destination, 1, frames)
             try? file.write(from: mono)
         }
         engine.prepare()
@@ -309,8 +364,6 @@ final class MicCapture {
     }
 
     func stop() {
-        recorder?.stop()
-        recorder = nil
         if let engine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
