@@ -27,6 +27,13 @@ final class RecordingManager: ObservableObject {
     @Published var transcribingKeys: Set<String> = []
     /// Bumped whenever a transcript lands on disk so views reload it.
     @Published var transcriptRevision = 0
+
+    /// Call after any change to transcripts on disk: refreshes views and
+    /// drops the search index's cached text.
+    private func transcriptsChanged() {
+        transcriptRevision += 1
+        TranscriptIndex.shared.invalidate()
+    }
     /// Why the last transcription attempt for a meeting produced no transcript.
     @Published var transcriptionErrors: [String: String] = [:]
 
@@ -218,7 +225,7 @@ final class RecordingManager: ObservableObject {
             let result = await Transcriber.transcribeFolder(Self.recordingFolder(for: key))
             self?.transcriptionErrors[key] = result.errorMessage
             self?.transcribingKeys.remove(key)
-            self?.transcriptRevision += 1
+            self?.transcriptsChanged()
         }
     }
 
@@ -234,7 +241,7 @@ final class RecordingManager: ObservableObject {
         let result = await Transcriber.transcribeFolder(Self.recordingFolder(for: occurrenceKey))
         transcriptionErrors[occurrenceKey] = result.errorMessage
         transcribingKeys.remove(occurrenceKey)
-        transcriptRevision += 1
+        transcriptsChanged()
     }
 
     private enum ExistingRecordingChoice {
@@ -263,7 +270,7 @@ final class RecordingManager: ObservableObject {
         guard !isRecording(occurrenceKey), !transcribingKeys.contains(occurrenceKey) else { return }
         try? FileManager.default.removeItem(at: Self.recordingFolder(for: occurrenceKey))
         transcriptionErrors.removeValue(forKey: occurrenceKey)
-        transcriptRevision += 1
+        transcriptsChanged()
     }
 
     /// Best-effort cleanup on app termination.

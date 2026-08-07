@@ -20,6 +20,31 @@ struct Transcript: Codable {
     let createdAt: Date
 }
 
+/// Lazily loaded transcript text per meeting, for sidebar search. Reads each
+/// transcript.json once (caching absence too) and is invalidated whenever a
+/// transcript lands, is redone, or is deleted.
+@MainActor
+final class TranscriptIndex {
+    static let shared = TranscriptIndex()
+
+    /// occurrenceKey → joined transcript text; "" caches "no transcript".
+    private var cache: [String: String] = [:]
+
+    func text(for occurrenceKey: String) -> String? {
+        if let cached = cache[occurrenceKey] {
+            return cached.isEmpty ? nil : cached
+        }
+        let text = Transcriber.loadTranscript(for: occurrenceKey)
+            .map { $0.segments.map(\.text).joined(separator: "\n") } ?? ""
+        cache[occurrenceKey] = text
+        return text.isEmpty ? nil : text
+    }
+
+    func invalidate() {
+        cache.removeAll()
+    }
+}
+
 /// On-device transcription of a recording folder (mic.m4a + system.m4a).
 /// Nothing is sent off the Mac.
 enum Transcriber {

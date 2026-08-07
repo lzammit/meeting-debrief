@@ -62,7 +62,63 @@ struct MainWindowView: View {
             .map { occurrenceKey(for: $0) }
     }
 
-    private var filteredEvents: [EKEvent] {
+    /// Where a meeting matched the sidebar search (first hit wins).
+    private enum SearchSource {
+        case tag, title, people, notes, transcript
+    }
+
+    /// occurrenceKey → where it matched the current search text, or nil when
+    /// the search field is empty. Computed once per render in `body`.
+    private var searchMatches: [String: SearchSource]? {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return nil }
+        var out: [String: SearchSource] = [:]
+        for event in watcher.events {
+            let key = occurrenceKey(for: event)
+            if let source = searchSource(event: event, key: key, query: query) {
+                out[key] = source
+            }
+        }
+        return out
+    }
+
+    private func searchSource(event: EKEvent, key: String, query: String) -> SearchSource? {
+        if store.tags(for: key).contains(where: { $0.localizedCaseInsensitiveContains(query) }) {
+            return .tag
+        }
+        if event.title?.localizedCaseInsensitiveContains(query) == true {
+            return .title
+        }
+        let people = (event.attendees ?? []) + [event.organizer].compactMap { $0 }
+        if people.contains(where: { ($0.name ?? "").localizedCaseInsensitiveContains(query) }) {
+            return .people
+        }
+        // Notes and transcripts may live under a duplicate booking's key too.
+        let keys = [key] + (watcher.duplicateAliases[key] ?? []).map(\.key)
+        if keys.contains(where: { k in
+            store.entries(for: k).contains { $0.text.localizedCaseInsensitiveContains(query) }
+        }) {
+            return .notes
+        }
+        if keys.contains(where: {
+            TranscriptIndex.shared.text(for: $0)?.localizedCaseInsensitiveContains(query) == true
+        }) {
+            return .transcript
+        }
+        return nil
+    }
+
+    /// Row hint explaining a match the row itself can't show. Tag, title,
+    /// and people matches are already visible in the row — no hint needed.
+    private static func searchHint(for source: SearchSource?) -> String? {
+        switch source {
+        case .notes: return "Matched in notes"
+        case .transcript: return "Matched in transcript"
+        default: return nil
+        }
+    }
+
+    private func filteredEvents(matching matches: [String: SearchSource]?) -> [EKEvent] {
         watcher.events.filter { event in
             let key = occurrenceKey(for: event)
             switch timeScope {
@@ -78,9 +134,8 @@ struct MainWindowView: View {
             if let tagFilter {
                 guard store.tags(for: key).contains(where: { $0.caseInsensitiveCompare(tagFilter) == .orderedSame }) else { return false }
             }
-            let query = searchText.trimmingCharacters(in: .whitespaces)
-            if !query.isEmpty {
-                guard store.tags(for: key).contains(where: { $0.localizedCaseInsensitiveContains(query) }) else { return false }
+            if let matches {
+                guard matches[key] != nil else { return false }
             }
             return true
         }
@@ -102,10 +157,10 @@ struct MainWindowView: View {
 
     /// Events grouped by day as a chronological timeline: oldest at the top,
     /// flowing down through today into the future. "Newest first" reverses it.
-    private var sections: [(day: Date, label: String, events: [EKEvent])] {
+    private func sections(of events: [EKEvent]) -> [(day: Date, label: String, events: [EKEvent])] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let grouped = Dictionary(grouping: filteredEvents) { calendar.startOfDay(for: $0.startDate) }
+        let grouped = Dictionary(grouping: events) { calendar.startOfDay(for: $0.startDate) }
         let days = grouped.keys.sorted(by: sortNewestFirst ? (>) : (<))
         return days.map { day in
             (day, Self.label(for: day, today: today), grouped[day]!.sorted { $0.startDate < $1.startDate })
@@ -113,6 +168,9 @@ struct MainWindowView: View {
     }
 
     var body: some View {
+        let matches = searchMatches
+        let filtered = filteredEvents(matching: matches)
+        let sectionList = sections(of: filtered)
         NavigationSplitView {
             Group {
                 if watcher.authorization == .denied {
@@ -156,7 +214,7 @@ struct MainWindowView: View {
                         .padding(.horizontal, 10)
                         .padding(.bottom, 8)
 
-                        if filteredEvents.isEmpty {
+                        if filtered.isEmpty {
                             ContentUnavailableView(
                                 "No matching meetings",
                                 systemImage: "person.crop.circle.badge.questionmark",
@@ -171,7 +229,7 @@ struct MainWindowView: View {
                                         externalEvent = nil
                                     }
                                 )) {
-                                    ForEach(sections, id: \.day) { section in
+                                    ForEach(sectionList, id: \.day) { section in
                                         Section(section.label) {
                                             ForEach(section.events, id: \.self) { event in
                                                 let key = occurrenceKey(for: event)
@@ -182,7 +240,8 @@ struct MainWindowView: View {
                                                     isRecording: recorder.isRecording(key),
                                                     tags: store.tags(for: key),
                                                     isCurrent: key == currentKey,
-                                                    isNext: currentKey == nil && key == nextKey
+                                                    isNext: currentKey == nil && key == nextKey,
+                                                    searchHint: Self.searchHint(for: matches?[key])
                                                 )
                                                 .tag(key)
                                             }
@@ -191,7 +250,7 @@ struct MainWindowView: View {
                                     }
                                 }
                                 .onAppear {
-                                    scrollToToday(proxy)
+                                    scrollToToday(proxy, days: sectionList.map(\.day))
                                     // Land on the meeting happening now (or
                                     // the next one) instead of leaving the
                                     // window focused on the tag-search field.
@@ -200,16 +259,16 @@ struct MainWindowView: View {
                                     }
                                     DispatchQueue.main.async { searchFocused = false }
                                 }
-                                .onChange(of: timeScope) { _, _ in scrollToToday(proxy) }
-                                .onChange(of: sortNewestFirst) { _, _ in scrollToToday(proxy) }
-                                .onChange(of: scrollTick) { _, _ in scrollToToday(proxy) }
+                                .onChange(of: timeScope) { _, _ in scrollToToday(proxy, days: sectionList.map(\.day)) }
+                                .onChange(of: sortNewestFirst) { _, _ in scrollToToday(proxy, days: sectionList.map(\.day)) }
+                                .onChange(of: scrollTick) { _, _ in scrollToToday(proxy, days: sectionList.map(\.day)) }
                             }
                         }
                     }
                 }
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 300)
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Search by tag")
+            .searchable(text: $searchText, placement: .sidebar, prompt: "Search meetings")
             .searchFocusedIfAvailable($searchFocused)
             .searchSuggestions {
                 ForEach(
@@ -282,9 +341,8 @@ struct MainWindowView: View {
 
     /// In the chronological timeline, land the view on today (or the nearest
     /// day) so past sits above and upcoming below, without manual scrolling.
-    private func scrollToToday(_ proxy: ScrollViewProxy) {
+    private func scrollToToday(_ proxy: ScrollViewProxy, days: [Date]) {
         let today = Calendar.current.startOfDay(for: Date())
-        let days = sections.map(\.day)
         guard !days.isEmpty else { return }
         let target = days.first(where: { $0 == today })
             ?? days.filter { $0 <= today }.max()
@@ -337,6 +395,9 @@ struct MeetingRow: View {
     var tags: [String] = []
     var isCurrent = false
     var isNext = false
+    /// "Matched in notes"/"Matched in transcript" — search hits the row
+    /// can't otherwise explain.
+    var searchHint: String? = nil
 
     private var highlighted: Bool { isCurrent || isNext }
 
@@ -374,6 +435,11 @@ struct MeetingRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                if let searchHint {
+                    Text(searchHint)
+                        .font(.caption2.italic())
+                        .foregroundStyle(Color.accentColor)
+                }
             }
             Spacer()
             if isRecording {
