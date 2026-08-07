@@ -14,6 +14,19 @@ enum TimeScope: String, CaseIterable {
     case past = "Past"
 }
 
+private extension View {
+    /// `.searchFocused` needs macOS 15; on 14 the search field just keeps
+    /// the system's default focus behavior.
+    @ViewBuilder
+    func searchFocusedIfAvailable(_ binding: FocusState<Bool>.Binding) -> some View {
+        if #available(macOS 15, *) {
+            searchFocused(binding)
+        } else {
+            self
+        }
+    }
+}
+
 struct MainWindowView: View {
     @EnvironmentObject var watcher: EventWatcher
     @EnvironmentObject var store: DebriefStore
@@ -26,6 +39,7 @@ struct MainWindowView: View {
     @State private var timeScope: TimeScope = .all
     @State private var tagFilter: String?
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
     /// Bumped by the "Today" button to re-scroll the timeline to today.
     @State private var scrollTick = 0
     /// Ticks every 30s so the "happening now" highlight tracks the clock.
@@ -176,7 +190,16 @@ struct MainWindowView: View {
                                         .id(section.day)
                                     }
                                 }
-                                .onAppear { scrollToToday(proxy) }
+                                .onAppear {
+                                    scrollToToday(proxy)
+                                    // Land on the meeting happening now (or
+                                    // the next one) instead of leaving the
+                                    // window focused on the tag-search field.
+                                    if selection == nil {
+                                        selection = currentKey ?? nextKey
+                                    }
+                                    DispatchQueue.main.async { searchFocused = false }
+                                }
                                 .onChange(of: timeScope) { _, _ in scrollToToday(proxy) }
                                 .onChange(of: sortNewestFirst) { _, _ in scrollToToday(proxy) }
                                 .onChange(of: scrollTick) { _, _ in scrollToToday(proxy) }
@@ -187,6 +210,7 @@ struct MainWindowView: View {
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 300)
             .searchable(text: $searchText, placement: .sidebar, prompt: "Search by tag")
+            .searchFocusedIfAvailable($searchFocused)
             .searchSuggestions {
                 ForEach(
                     store.allTags.filter {

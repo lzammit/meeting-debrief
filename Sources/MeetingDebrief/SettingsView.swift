@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage("pastWindowDays") private var pastWindowDays = 30
     @AppStorage("internalDomains") private var internalDomains = ""
     @AppStorage("micEchoCancellation") private var micEchoCancellation = false
+    @AppStorage("autoTagMeetings") private var autoTagMeetings = true
     @AppStorage("autoRecordWeekdaysOnly") private var autoRecordWeekdaysOnly = false
     @AppStorage("systemAudioUseTap") private var systemAudioUseTap = false
 
@@ -44,6 +45,13 @@ struct SettingsView: View {
                 TextField("Internal domains", text: $internalDomains, prompt: Text("yourcompany.com, contractor.com"))
                     .onSubmit { EventWatcher.shared.refresh() }
                 Text("Your organization's email domain(s), comma-separated, so they're not mistaken for a client — teammates, contractors, bots. webex.com (including subdomains) is always ignored.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Auto-tag meetings", isOn: $autoTagMeetings)
+                    .onChange(of: autoTagMeetings) { _, on in
+                        if on { EventWatcher.shared.refresh() }
+                    }
+                Text("New meetings get a tag automatically when history makes it obvious — the same recurring meeting, or meetings with the same client's attendees, were always tagged that way. Removing an auto-added tag sticks; the meeting won't be re-tagged.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

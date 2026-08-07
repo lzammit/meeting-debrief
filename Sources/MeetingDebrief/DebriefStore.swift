@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import EventKit
 
 enum ClientAttendance: String, Codable {
     case showed
@@ -111,6 +112,78 @@ final class DebriefStore: ObservableObject {
         list.append(tag)
         meetingTags[occurrenceKey] = list
         persistTags()
+    }
+
+    // MARK: - Auto-tagging
+
+    private static let autoTaggedDefaultsKey = "autoTaggedOccurrences"
+
+    /// Tag current/upcoming meetings automatically when history makes the
+    /// answer obvious: at least two previously tagged occurrences of the same
+    /// recurring series — or two tagged meetings with the same client's
+    /// attendees — and every one of them carries the tag (unanimity, not
+    /// majority). Each occurrence is auto-tagged at most once, so removing an
+    /// auto-added tag sticks. Off switch: Settings → Auto-tag meetings.
+    func autoTag(events: [EKEvent]) {
+        guard UserDefaults.standard.object(forKey: "autoTagMeetings") as? Bool ?? true else { return }
+        let now = Date()
+        var done = Set(UserDefaults.standard.stringArray(forKey: Self.autoTaggedDefaultsKey) ?? [])
+        var doneChanged = false
+
+        // Tag lists of every already-tagged meeting, grouped by recurring
+        // series and by detected client domain.
+        var seriesTags: [String: [[String]]] = [:]
+        var clientTags: [String: [[String]]] = [:]
+        for event in events {
+            let tags = meetingTags[occurrenceKey(for: event)] ?? []
+            guard !tags.isEmpty else { continue }
+            if let seriesID = event.eventIdentifier {
+                seriesTags[seriesID, default: []].append(tags)
+            }
+            if let client = EventWatcher.clientDomain(of: event) {
+                clientTags[client, default: []].append(tags)
+            }
+        }
+
+        for event in events where event.endDate > now {
+            let key = occurrenceKey(for: event)
+            guard !done.contains(key), (meetingTags[key] ?? []).isEmpty else { continue }
+            var confident: [String] = []
+            if let seriesID = event.eventIdentifier {
+                confident += Self.unanimousTags(in: seriesTags[seriesID] ?? [])
+            }
+            if let client = EventWatcher.clientDomain(of: event) {
+                confident += Self.unanimousTags(in: clientTags[client] ?? [])
+            }
+            guard !confident.isEmpty else { continue }
+            for tag in confident { addTag(tag, to: key) }
+            done.insert(key)
+            doneChanged = true
+        }
+
+        if doneChanged {
+            // Occurrence keys embed the end timestamp — drop records of
+            // meetings long outside the visible window.
+            let cutoff = now.timeIntervalSince1970 - 90 * 24 * 3600
+            let pruned = done.filter { key in
+                guard let end = key.components(separatedBy: "|").last.flatMap(Double.init) else { return false }
+                return end > cutoff
+            }
+            UserDefaults.standard.set(Array(pruned), forKey: Self.autoTaggedDefaultsKey)
+        }
+    }
+
+    /// Tags present (case-insensitively) in every one of the given tag lists,
+    /// requiring at least two lists so a single tagged meeting never counts
+    /// as "very confident". Casing comes from the first list.
+    private static func unanimousTags(in taggedLists: [[String]]) -> [String] {
+        guard taggedLists.count >= 2, var candidates = taggedLists.first else { return [] }
+        for tags in taggedLists.dropFirst() {
+            candidates = candidates.filter { candidate in
+                tags.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+            }
+        }
+        return candidates
     }
 
     func removeTag(_ tag: String, from occurrenceKey: String) {

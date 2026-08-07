@@ -122,6 +122,10 @@ final class EventWatcher: ObservableObject {
         events = merged.primaries
         duplicateAliases = merged.aliases
 
+        // Tag new meetings whose tag history makes the answer obvious —
+        // before the sync upload below so the bundle carries fresh tags.
+        if !DemoData.isEnabled { DebriefStore.shared.autoTag(events: events) }
+
         // Now that the calendar is loaded, push an up-to-date bundle to the
         // iPhone companion (queued/debounced; skipped in demo mode).
         if !DemoData.isEnabled { SyncManager.shared.scheduleUpload() }
