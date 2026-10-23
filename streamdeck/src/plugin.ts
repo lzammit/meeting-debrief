@@ -25,10 +25,15 @@ const STATE_FILE = join(STATE_DIR, "recording-state.json");
 const TOGGLE_URL = "meetingdebrief://record/toggle";
 const NOTICE_MS = 3000;
 
+let lastReadError = "";
+
 function readState(): AppState | undefined {
 	try {
 		return JSON.parse(readFileSync(STATE_FILE, "utf8")) as AppState;
-	} catch {
+	} catch (e) {
+		const msg = (e as Error).message;
+		if (msg !== lastReadError) streamDeck.logger.warn(`cannot read ${STATE_FILE}: ${msg}`);
+		lastReadError = msg;
 		return undefined;
 	}
 }
@@ -37,8 +42,9 @@ function isAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;
-	} catch {
-		return false;
+	} catch (e) {
+		// EPERM still means the process exists; only ESRCH means it's gone.
+		return (e as NodeJS.ErrnoException).code === "EPERM";
 	}
 }
 
