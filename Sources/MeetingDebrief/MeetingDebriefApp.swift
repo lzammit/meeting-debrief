@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             EventWatcher.shared.start()
             SyncManager.shared.start()
+            RemoteControl.shared.start()
             promptForCaptureApprovalIfNeeded()
         }
     }
@@ -88,6 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             RecordingManager.shared.emergencyStop()
+            RemoteControl.shared.appWillTerminate()
+        }
+    }
+
+    // meetingdebrief://record/toggle and friends (see RemoteControl).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated {
+            urls.forEach(RemoteControl.shared.handle)
         }
     }
 }

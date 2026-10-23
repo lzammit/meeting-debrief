@@ -17,6 +17,7 @@ This repo holds **two apps, maintained in separate Claude sessions**:
 - Build: `./build.sh` → `dist/MeetingDebrief.app` (Apple Development signing; ad-hoc breaks TCC grants).
 - Key files: `Sources/MeetingDebrief/` — `MainWindow.swift`, `EventWatcher.swift`, `MeetingRecorder.swift`, `Transcriber.swift`, `DebriefStore.swift`, `DebriefSync.swift` (sync upload side), `SettingsView.swift`.
 - Icon: `tools/make-icon.swift`.
+- Remote control: `RemoteControl.swift` handles `meetingdebrief://record/toggle|start|stop` and mirrors recording state to `~/Library/Application Support/MeetingDebrief/recording-state.json`. The Stream Deck plugin in `streamdeck/` depends on both; keep `StateFile` in sync with `streamdeck/src/plugin.ts`.
 
 ## Shared sync contract
 

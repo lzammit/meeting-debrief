@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+	"Name": "MeetingDebrief",
+	"Version": "0.1.0.0",
+	"Author": "Ludovic Zammit",
+	"Description": "Start and stop MeetingDebrief recording of the meeting in progress from one key.",
+	"UUID": "com.meetingdebrief.record",
+	"Category": "MeetingDebrief",
+	"CategoryIcon": "imgs/plugin/category",
+	"Icon": "imgs/plugin/icon",
+	"CodePath": "bin/plugin.js",
+	"SDKVersion": 3,
+	"Software": { "MinimumVersion": "7.1" },
+	"OS": [{ "Platform": "mac", "MinimumVersion": "14" }],
+	"Nodejs": { "Version": "24", "Debug": "disabled" },
+	"Actions": [
+		{
+			"Name": "Record / stop",
+			"UUID": "com.meetingdebrief.record.toggle",
+			"Icon": "imgs/actions/toggle",
+			"Tooltip": "Records the meeting in progress, or stops the recording.",
+			"Controllers": ["Keypad"],
+			"DisableAutomaticStates": true,
+			"SupportedInMultiActions": true,
+			"States": [{ "Image": "imgs/keys/toggle", "ShowTitle": false }]
+		}
+	]
+}
