@@ -10,6 +10,7 @@ final class DebriefPanelController {
 
     func show(
         occurrenceKey: String, eventTitle: String, eventEnd: Date,
+        suggestedTags: [String] = [],
         onDismiss: @escaping () -> Void,
         onSnooze: @escaping (TimeInterval) -> Void
     ) {
@@ -19,6 +20,9 @@ final class DebriefPanelController {
             eventTitle: eventTitle,
             eventEnd: eventEnd,
             initialAttendance: DebriefStore.shared.attendance(for: occurrenceKey),
+            initialTags: DebriefStore.shared.tags(for: occurrenceKey),
+            suggestedTags: suggestedTags,
+            allTags: DebriefStore.shared.allTags,
             onSave: { kind, text in
                 Task { @MainActor in
                     DebriefStore.shared.add(
@@ -40,6 +44,16 @@ final class DebriefPanelController {
             onAttendance: { value in
                 Task { @MainActor in
                     DebriefStore.shared.setAttendance(value, for: occurrenceKey)
+                }
+            },
+            onAddTag: { tag in
+                Task { @MainActor in
+                    DebriefStore.shared.addTag(tag, to: occurrenceKey)
+                }
+            },
+            onRemoveTag: { tag in
+                Task { @MainActor in
+                    DebriefStore.shared.removeTag(tag, from: occurrenceKey)
                 }
             }
         )
@@ -126,14 +140,123 @@ struct AttendanceControl: View {
     }
 }
 
+/// Tag row for the debrief popup: shows the meeting's tags so a forgotten
+/// one is visible right when the meeting ends, with quick-add for known
+/// tags (client names) and a field for new ones.
+struct TagControl: View {
+    @State var tags: [String]
+    /// Likely tags for this meeting (series/client history), shown as
+    /// one-click "+ tag" chips.
+    let suggested: [String]
+    let allTags: [String]
+    let onAdd: (String) -> Void
+    let onRemove: (String) -> Void
+
+    @State private var newTag = ""
+
+    private var visibleSuggestions: [String] {
+        suggested.filter { candidate in
+            !tags.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+        }
+    }
+
+    private var menuChoices: [String] {
+        allTags.filter { candidate in
+            !tags.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+                && !visibleSuggestions.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Tags")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if tags.isEmpty {
+                Text("None yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+            }
+            ForEach(tags, id: \.self) { tag in
+                Button {
+                    tags.removeAll { $0 == tag }
+                    onRemove(tag)
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(tag)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.15), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Remove tag “\(tag)”")
+            }
+            ForEach(visibleSuggestions, id: \.self) { tag in
+                Button {
+                    add(tag)
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                        Text(tag)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().strokeBorder(Color.accentColor.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3]))
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Suggested from this meeting's past occurrences — click to add")
+            }
+            if !menuChoices.isEmpty {
+                Menu {
+                    ForEach(menuChoices, id: \.self) { tag in
+                        Button(tag) { add(tag) }
+                    }
+                } label: {
+                    Image(systemName: "tag")
+                }
+                .fixedSize()
+                .help("Add an existing tag")
+            }
+            TextField("New tag", text: $newTag)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 90)
+                .onSubmit { add(newTag) }
+        }
+    }
+
+    private func add(_ raw: String) {
+        let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tag.isEmpty,
+              !tags.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) else { return }
+        tags.append(tag)
+        onAdd(tag)
+        newTag = ""
+    }
+}
+
 struct DebriefView: View {
     let eventTitle: String
     let eventEnd: Date
     let initialAttendance: ClientAttendance?
+    let initialTags: [String]
+    let suggestedTags: [String]
+    let allTags: [String]
     let onSave: (NoteKind, String) -> Void
     let onClose: () -> Void
     let onSnooze: (TimeInterval) -> Void
     let onAttendance: (ClientAttendance?) -> Void
+    let onAddTag: (String) -> Void
+    let onRemoveTag: (String) -> Void
 
     private static let snoozeChoices: [(label: String, interval: TimeInterval)] = [
         ("5 minutes", 5 * 60),
@@ -168,6 +291,14 @@ struct DebriefView: View {
                 onAttendance(newValue)
             }
             .onAppear { attendanceSelection = initialAttendance }
+
+            TagControl(
+                tags: initialTags,
+                suggested: suggestedTags,
+                allTags: allTags,
+                onAdd: onAddTag,
+                onRemove: onRemoveTag
+            )
 
             switch stage {
             case .choice:

@@ -433,8 +433,13 @@ final class EventWatcher: ObservableObject {
         guard !panelVisible, !pendingPrompts.isEmpty else { return }
         let prompt = pendingPrompts.removeFirst()
         panelVisible = true
+        // Suggest likely tags from the meeting's series/client history
+        // (empty for the test popup, which has no real event behind it).
+        let event = events.first { occurrenceKey(for: $0) == prompt.key }
+        let suggestedTags = event.map { DebriefStore.shared.suggestedTags(for: $0, among: events) } ?? []
         DebriefPanelController.shared.show(
             occurrenceKey: prompt.key, eventTitle: prompt.title, eventEnd: prompt.endDate,
+            suggestedTags: suggestedTags,
             onDismiss: { [weak self] in
                 Task { @MainActor in
                     self?.panelVisible = false

@@ -186,6 +186,40 @@ final class DebriefStore: ObservableObject {
         return candidates
     }
 
+    /// Likely tags for one meeting, offered as one-click suggestions in the
+    /// debrief popup: every tag previously used on the same recurring series
+    /// or on the same client's meetings. Softer signal than autoTag (a single
+    /// past occurrence counts, no unanimity) — so these are offered to the
+    /// user, never applied automatically.
+    func suggestedTags(for event: EKEvent, among events: [EKEvent]) -> [String] {
+        let key = occurrenceKey(for: event)
+        let seriesID = event.eventIdentifier
+        let client = EventWatcher.clientDomain(of: event)
+
+        var counts: [String: Int] = [:]      // lowercased tag → occurrences seen
+        var casing: [String: String] = [:]   // lowercased tag → original casing
+        for other in events {
+            let otherKey = occurrenceKey(for: other)
+            guard otherKey != key, let tags = meetingTags[otherKey], !tags.isEmpty else { continue }
+            let sameSeries = seriesID != nil && other.eventIdentifier == seriesID
+            let sameClient = client != nil && EventWatcher.clientDomain(of: other) == client
+            guard sameSeries || sameClient else { continue }
+            for tag in tags {
+                let lower = tag.lowercased()
+                counts[lower, default: 0] += 1
+                if casing[lower] == nil { casing[lower] = tag }
+            }
+        }
+        for tag in meetingTags[key] ?? [] {
+            counts.removeValue(forKey: tag.lowercased())
+        }
+
+        return counts
+            .sorted { ($0.value, $1.key) > ($1.value, $0.key) }
+            .prefix(3)
+            .compactMap { casing[$0.key] }
+    }
+
     func removeTag(_ tag: String, from occurrenceKey: String) {
         var list = meetingTags[occurrenceKey] ?? []
         list.removeAll { $0.caseInsensitiveCompare(tag) == .orderedSame }
