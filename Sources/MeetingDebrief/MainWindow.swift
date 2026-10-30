@@ -14,19 +14,6 @@ enum TimeScope: String, CaseIterable {
     case past = "Past"
 }
 
-private extension View {
-    /// `.searchFocused` needs macOS 15; on 14 the search field just keeps
-    /// the system's default focus behavior.
-    @ViewBuilder
-    func searchFocusedIfAvailable(_ binding: FocusState<Bool>.Binding) -> some View {
-        if #available(macOS 15, *) {
-            searchFocused(binding)
-        } else {
-            self
-        }
-    }
-}
-
 struct MainWindowView: View {
     @EnvironmentObject var watcher: EventWatcher
     @EnvironmentObject var store: DebriefStore
@@ -167,6 +154,47 @@ struct MainWindowView: View {
         }
     }
 
+    /// The search field's autocomplete list: one row per matching tag,
+    /// scrolling past 8, styled like a menu.
+    @ViewBuilder
+    private func tagDropdown(_ tags: [String]) -> some View {
+        let rows = VStack(alignment: .leading, spacing: 0) {
+            ForEach(tags, id: \.self) { tag in
+                Button {
+                    searchText = tag
+                    searchFocused = false
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "tag")
+                            .foregroundStyle(.secondary)
+                        Text(tag)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+
+        Group {
+            if tags.count > 8 {
+                ScrollView { rows }
+                    .frame(height: 220)
+            } else {
+                rows
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
+        .padding(.horizontal, 10)
+        .padding(.top, 2)
+    }
+
     var body: some View {
         let matches = searchMatches
         let filtered = filteredEvents(matching: matches)
@@ -183,6 +211,57 @@ struct MainWindowView: View {
                     ContentUnavailableView("No meetings", systemImage: "calendar", description: Text("No events in the past or next 7 days."))
                 } else {
                     VStack(spacing: 6) {
+                        // Pinned above the list (instead of .searchable,
+                        // which scrolls away with the sidebar content) so
+                        // the search — and the way out of it — is always
+                        // visible.
+                        let tagSuggestions = store.allTags.filter { tag in
+                            searchText.isEmpty || tag.localizedCaseInsensitiveContains(searchText)
+                        }
+                        HStack(spacing: 5) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            TextField("Search meetings", text: $searchText)
+                                .textFieldStyle(.plain)
+                                .focused($searchFocused)
+                                .onExitCommand {
+                                    searchText = ""
+                                    searchFocused = false
+                                }
+                            if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Clear search")
+                            }
+                        }
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 7)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+                        .padding(.horizontal, 10)
+                        .padding(.top, 8)
+                        .background(
+                            // ⌘F focuses the search field, like the old
+                            // .searchable field did.
+                            Button("") { searchFocused = true }
+                                .keyboardShortcut("f", modifiers: .command)
+                                .hidden()
+                        )
+                        // Autocomplete dropdown: every tag while the field
+                        // is focused, narrowed as you type. Floats over the
+                        // content below instead of pushing it down.
+                        .overlay(alignment: .bottom) {
+                            if searchFocused, !tagSuggestions.isEmpty {
+                                tagDropdown(tagSuggestions)
+                                    .alignmentGuide(.bottom) { $0[.top] }
+                            }
+                        }
+                        .zIndex(1)
+
                         HStack(spacing: 6) {
                             Picker("Time scope", selection: $timeScope) {
                                 ForEach(TimeScope.allCases, id: \.self) { scope in
@@ -202,7 +281,6 @@ struct MainWindowView: View {
                             .fixedSize()
                         }
                         .padding(.horizontal, 10)
-                        .padding(.top, 8)
 
                         Picker("Attendance filter", selection: $attendanceFilter) {
                             ForEach(AttendanceFilter.allCases, id: \.self) { filter in
@@ -215,11 +293,18 @@ struct MainWindowView: View {
                         .padding(.bottom, 8)
 
                         if filtered.isEmpty {
-                            ContentUnavailableView(
-                                "No matching meetings",
-                                systemImage: "person.crop.circle.badge.questionmark",
-                                description: Text("No meetings match the current search and filters.")
-                            )
+                            ContentUnavailableView {
+                                Label("No matching meetings", systemImage: "person.crop.circle.badge.questionmark")
+                            } description: {
+                                Text("No meetings match the current search and filters.")
+                            } actions: {
+                                Button("Clear search & filters") {
+                                    searchText = ""
+                                    tagFilter = nil
+                                    attendanceFilter = .all
+                                    timeScope = .all
+                                }
+                            }
                         } else {
                             ScrollViewReader { proxy in
                                 List(selection: Binding(
@@ -268,18 +353,6 @@ struct MainWindowView: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 300)
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Search meetings")
-            .searchFocusedIfAvailable($searchFocused)
-            .searchSuggestions {
-                ForEach(
-                    store.allTags.filter {
-                        searchText.isEmpty || $0.localizedCaseInsensitiveContains(searchText)
-                    },
-                    id: \.self
-                ) { tag in
-                    Label(tag, systemImage: "tag").searchCompletion(tag)
-                }
-            }
             .toolbar {
                 ToolbarItem {
                     Picker("Order", selection: $sortNewestFirst) {
