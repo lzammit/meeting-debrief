@@ -5,13 +5,15 @@ import { join } from "node:path";
 
 import streamDeck, { action, type KeyDownEvent, SingletonAction, type WillAppearEvent } from "@elgato/streamdeck";
 
-import { idleKey, noticeKey, offKey, recordingKey } from "./render.ts";
+import { chooseKey, idleKey, noticeKey, offKey, recordingKey } from "./render.ts";
 
 /** Mirrors RemoteControl.StateFile in the app. */
 type AppState = {
 	recording: boolean;
 	title?: string;
 	startedAt?: number;
+	/** True while the app shows the chooser for overlapping meetings. */
+	choosing?: boolean;
 	systemAudioOK: boolean;
 	lastError?: string;
 	lastErrorAt?: number;
@@ -108,6 +110,7 @@ class RecordToggle extends SingletonAction {
 		const s = this.state;
 		if (!s || !this.running) return offKey();
 		if (s.recording && s.startedAt) return recordingKey(Date.now() - s.startedAt * 1000, s.title ?? "Recording", !s.systemAudioOK);
+		if (s.choosing) return chooseKey();
 		return idleKey();
 	}
 

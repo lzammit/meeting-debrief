@@ -80,6 +80,16 @@ export function recordingKey(ms: number, title: string, micOnly: boolean): strin
 	);
 }
 
+/** Several meetings are running and the app is asking which one to record. */
+export function chooseKey(): string {
+	return svg(
+		`<text x="72" y="66" text-anchor="middle" font-family="${SANS}" font-size="54" font-weight="700" fill="${WARN}">?</text>` +
+			text("Pick meeting", 108, 18) +
+			text("on your Mac", 130, 15, { fill: DIM }),
+		"#232327",
+	);
+}
+
 /** Shown for a few seconds when a press found no meeting to record. */
 export function noticeKey(message: string): string {
 	const lines = wrap(message, 12);

@@ -22,6 +22,9 @@ final class RemoteControl {
         var title: String?
         /// Seconds since 1970.
         var startedAt: Double?
+        /// True while the app is asking which of several in-progress
+        /// meetings to record (the chooser panel is up).
+        var choosing: Bool?
         /// False when the other participants aren't being captured.
         var systemAudioOK: Bool
         /// Why the last remote command did nothing, e.g. "no-meeting".
@@ -42,6 +45,8 @@ final class RemoteControl {
 
     private var cancellables: Set<AnyCancellable> = []
     private var lastError: (code: String, at: Date)?
+    /// True while the meeting chooser panel is up (mirrored to StateFile).
+    private var choosing = false
 
     /// Starts mirroring recording state to disk. Call once at launch.
     func start() {
@@ -49,7 +54,16 @@ final class RemoteControl {
         recorder.$state
             .combineLatest(recorder.$systemAudioError)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in self?.writeState() }
+            .sink { [weak self] state, _ in
+                guard let self else { return }
+                // A recording started some other way (meeting card, auto-
+                // record) answers the pending question — drop the chooser.
+                if case .recording = state, self.choosing {
+                    self.choosing = false
+                    RecordChoicePanelController.shared.close()
+                }
+                self.writeState()
+            }
             .store(in: &cancellables)
     }
 
@@ -73,24 +87,53 @@ final class RemoteControl {
         writeState(recordingOverride: false)
     }
 
-    /// The meeting happening now. When meetings overlap, the one that started
-    /// last is the one the user just joined.
-    private func currentMeeting() -> (key: String, title: String)? {
+    /// Every meeting happening right now, earliest start first.
+    private func inProgressMeetings() -> [MeetingChoice] {
         let now = Date()
-        let event = EventWatcher.shared.events
+        return EventWatcher.shared.events
             .filter { $0.startDate <= now && $0.endDate > now }
-            .max { $0.startDate < $1.startDate }
-        guard let event else { return nil }
-        return (occurrenceKey(for: event), event.title ?? "Untitled event")
+            .sorted { $0.startDate < $1.startDate }
+            .map {
+                MeetingChoice(
+                    key: occurrenceKey(for: $0),
+                    title: $0.title ?? "Untitled event",
+                    start: $0.startDate,
+                    end: $0.endDate
+                )
+            }
     }
 
     private func startCurrentMeeting() {
-        guard let meeting = currentMeeting() else {
+        let meetings = inProgressMeetings()
+        switch meetings.count {
+        case 0:
             lastError = ("no-meeting", Date())
             writeState()
-            return
+        case 1:
+            start(meetings[0])
+        default:
+            // Several meetings are running: ask instead of guessing. The
+            // Stream Deck key shows the pending question via `choosing`.
+            lastError = nil
+            RecordChoicePanelController.shared.show(
+                meetings: meetings,
+                onPick: { [weak self] choice in
+                    self?.choosing = false
+                    self?.start(choice)
+                },
+                onDismiss: { [weak self] in
+                    self?.choosing = false
+                    self?.writeState()
+                }
+            )
+            choosing = true
+            writeState()
         }
+    }
+
+    private func start(_ meeting: MeetingChoice) {
         lastError = nil
+        writeState()
         Task {
             await RecordingManager.shared.startRecording(
                 occurrenceKey: meeting.key,
@@ -105,6 +148,7 @@ final class RemoteControl {
         let recorder = RecordingManager.shared
         var file = StateFile(
             recording: false,
+            choosing: choosing ? true : nil,
             systemAudioOK: recorder.systemAudioError == nil,
             lastError: lastError?.code,
             lastErrorAt: lastError?.at.timeIntervalSince1970,

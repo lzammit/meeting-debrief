@@ -1123,6 +1123,20 @@ struct MeetingDetailView: View {
                         systemImage: "record.circle"
                     )
                 }
+            } else if isInProgress, !recorder.isRecording(occurrenceKey) {
+                // An overlapping meeting is holding the single recorder —
+                // offer to move it here.
+                Button {
+                    Task {
+                        await recorder.switchRecording(
+                            to: occurrenceKey,
+                            title: event.title ?? "Untitled event"
+                        )
+                    }
+                } label: {
+                    Label("Record this meeting instead", systemImage: "record.circle")
+                }
+                .help("Stops the current recording and records this meeting")
             }
         }
     }

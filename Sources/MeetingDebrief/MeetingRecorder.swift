@@ -41,6 +41,11 @@ final class RecordingManager: ObservableObject {
     /// next calendar refresh.
     private(set) var userStoppedKeys: Set<String> = []
 
+    /// Called after a recording stops and the recorder is idle again, with
+    /// the stopped meeting's key. The event watcher uses it to hand the
+    /// recorder to another meeting still in progress (overlapping meetings).
+    var onRecordingStopped: ((String) -> Void)?
+
     /// Why system audio (the other participants) isn't being captured, if it
     /// failed on the current/last recording.
     @Published var systemAudioError: String?
@@ -209,6 +214,22 @@ final class RecordingManager: ObservableObject {
     }
 
     func stopRecording(manual: Bool = false) {
+        // A manual stop means "stop" — the user decides what records next
+        // (the chooser, or a meeting card's record button). Only a natural
+        // end hands the recorder to another in-progress meeting.
+        stopRecording(manual: manual, startNext: !manual)
+    }
+
+    /// Stop the current recording and record another in-progress meeting
+    /// instead — overlapping meetings share the single recorder, so this is
+    /// how the user moves it. The stopped meeting counts as user-stopped so
+    /// nothing auto-restarts it.
+    func switchRecording(to occurrenceKey: String, title: String) async {
+        stopRecording(manual: true, startNext: false)
+        await startRecording(occurrenceKey: occurrenceKey, title: title, force: true, interactive: true)
+    }
+
+    private func stopRecording(manual: Bool, startNext: Bool) {
         guard case .recording(let key, _, _) = state else { return }
         if manual { userStoppedKeys.insert(key) }
 
@@ -227,6 +248,10 @@ final class RecordingManager: ObservableObject {
             self?.transcribingKeys.remove(key)
             self?.transcriptsChanged()
         }
+
+        // The recorder is free again — let the watcher hand it to another
+        // meeting still in progress.
+        if startNext { onRecordingStopped?(key) }
     }
 
     func stopIfRecording(matching occurrenceKey: String) {

@@ -57,6 +57,9 @@ final class EventWatcher: ObservableObject {
     private let promptedDefaultsKey = "promptedOccurrences"
 
     func start() {
+        RecordingManager.shared.onRecordingStopped = { [weak self] stoppedKey in
+            self?.recordingStopped(for: stoppedKey)
+        }
         if DemoData.isEnabled {
             let events = DemoData.buildAndSeed(store: store)
             DebriefStore.shared.reload()
@@ -136,12 +139,7 @@ final class EventWatcher: ObservableObject {
 
         // Popups and recordings only for events ending today — and only for
         // merged primaries, so a blocker + invite pair prompts once.
-        var autoRecord = UserDefaults.standard.bool(forKey: "autoRecordMeetings")
-        if autoRecord,
-           UserDefaults.standard.bool(forKey: "autoRecordWeekdaysOnly"),
-           calendar.isDateInWeekend(now) {
-            autoRecord = false
-        }
+        let autoRecord = autoRecordActive
         for event in merged.primaries where event.endDate <= endOfToday && event.endDate > startOfDay {
             let key = occurrenceKey(for: event)
             let recTitle = event.title ?? "Untitled event"
@@ -177,11 +175,58 @@ final class EventWatcher: ObservableObject {
                 fire(key: key, title: title, endDate: endDate)
             }
         }
+
+        // Safety net: a recording must never outlive its meeting. The
+        // end-of-meeting timer can be lost (sleep), and editing or
+        // rescheduling the event changes its occurrence key so the timer's
+        // stop no longer matches — seen in the wild as a mic recording that
+        // ran for a full day. The key embeds the scheduled end, so any
+        // reload (at least every 5 minutes) can catch strays here; the stop
+        // then hands the recorder to whatever meeting is in progress now.
+        if case .recording(let recordingKey, _, _) = RecordingManager.shared.state,
+           let scheduledEnd = recordingKey.components(separatedBy: "|").last.flatMap(Double.init),
+           now.timeIntervalSince1970 > scheduledEnd + 120 {
+            RecordingManager.shared.stopRecording()
+        }
     }
 
     private func isDeclined(_ event: EKEvent) -> Bool {
         guard let attendees = event.attendees else { return false }
         return attendees.contains { $0.isCurrentUser && $0.participantStatus == .declined }
+    }
+
+    /// Whether auto-record applies right now (toggle on, and not gated out
+    /// by the weekdays-only setting).
+    private var autoRecordActive: Bool {
+        guard UserDefaults.standard.bool(forKey: "autoRecordMeetings") else { return false }
+        if UserDefaults.standard.bool(forKey: "autoRecordWeekdaysOnly"),
+           Calendar.current.isDateInWeekend(Date()) {
+            return false
+        }
+        return true
+    }
+
+    /// A recording just stopped (manually, or because its meeting ended).
+    /// With overlapping meetings only one can record at a time and the
+    /// others' start timers were dropped — so the moment the recorder is
+    /// free, hand it to the earliest meeting still in progress that the
+    /// user hasn't stopped themselves.
+    private func recordingStopped(for stoppedKey: String) {
+        guard !DemoData.isEnabled, autoRecordActive else { return }
+        let recorder = RecordingManager.shared
+        guard !recorder.isRecording else { return }
+        let now = Date()
+        guard let next = events.first(where: { event in
+            let key = occurrenceKey(for: event)
+            return key != stoppedKey
+                && event.startDate <= now && event.endDate > now
+                && !recorder.userStoppedKeys.contains(key)
+        }) else { return }
+        let key = occurrenceKey(for: next)
+        let title = next.title ?? "Untitled event"
+        Task { @MainActor in
+            await recorder.startRecording(occurrenceKey: key, title: title)
+        }
     }
 
     /// Re-evaluate schedules after a settings change (e.g. auto-record toggled).
