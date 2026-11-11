@@ -251,17 +251,12 @@ struct MainWindowView: View {
                                 .keyboardShortcut("f", modifiers: .command)
                                 .hidden()
                         )
-                        // Autocomplete dropdown: every tag while the field
-                        // is focused, narrowed as you type. Floats over the
-                        // content below instead of pushing it down.
-                        .overlay(alignment: .bottom) {
-                            if searchFocused, !tagSuggestions.isEmpty {
-                                tagDropdown(tagSuggestions)
-                                    .alignmentGuide(.bottom) { $0[.top] }
-                            }
-                        }
-                        .zIndex(1)
-
+                        // Everything below the search field goes in a
+                        // ZStack so the autocomplete dropdown can float
+                        // over it, top-aligned — i.e. hanging right under
+                        // the search field — instead of pushing it down.
+                        ZStack(alignment: .top) {
+                        VStack(spacing: 6) {
                         HStack(spacing: 6) {
                             Picker("Time scope", selection: $timeScope) {
                                 ForEach(TimeScope.allCases, id: \.self) { scope in
@@ -348,6 +343,14 @@ struct MainWindowView: View {
                                 .onChange(of: sortNewestFirst) { _, _ in scrollToToday(proxy, days: sectionList.map(\.day)) }
                                 .onChange(of: scrollTick) { _, _ in scrollToToday(proxy, days: sectionList.map(\.day)) }
                             }
+                        }
+                        }
+
+                        // Autocomplete: every tag while the field is
+                        // focused, narrowed as you type.
+                        if searchFocused, !tagSuggestions.isEmpty {
+                            tagDropdown(tagSuggestions)
+                        }
                         }
                     }
                 }
