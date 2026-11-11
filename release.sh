@@ -48,7 +48,15 @@ rm -rf "$APP" "$DMG" "$ZIP" dist/dmg-staging
 # attach to a release by mistake now that artifact names carry the version.
 rm -f dist/MeetingDebrief.zip
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp .build/apple/Products/Release/MeetingDebrief "$APP/Contents/MacOS/MeetingDebrief"
+# .build/release is SwiftPM's symlink to the active build layout (it moved
+# from .build/apple/... to .build/out/... across toolchains — the hardcoded
+# old path shipped months-stale binaries in 0.1.6/0.1.7).
+BIN=".build/release/MeetingDebrief"
+if [ -n "$(find Sources -name '*.swift' -newer "$BIN" 2>/dev/null)" ]; then
+  echo "error: $BIN is older than files in Sources/ — refusing to package a stale binary." >&2
+  exit 1
+fi
+cp "$BIN" "$APP/Contents/MacOS/MeetingDebrief"
 cp Info.plist "$APP/Contents/Info.plist"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
