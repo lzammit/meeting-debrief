@@ -733,6 +733,29 @@ struct MeetingDetailView: View {
                         .help("Add an existing tag")
                     }
                 }
+                // Live search while typing: existing tags containing the
+                // typed text, one click to add (so "sea" surfaces "SEA
+                // training" instead of creating a near-duplicate).
+                let query = newTag.trimmingCharacters(in: .whitespaces)
+                let typedMatches = query.isEmpty ? [] : store.allTags.filter { tag in
+                    tag.localizedCaseInsensitiveContains(query)
+                        && !currentTags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
+                }
+                if !typedMatches.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("Matching:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(Array(typedMatches.prefix(4)), id: \.self) { tag in
+                            Button(tag) {
+                                store.addTag(tag, to: occurrenceKey)
+                                newTag = ""
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                }
                 let suggestions = tagSuggestions
                 if !suggestions.isEmpty {
                     HStack(spacing: 6) {

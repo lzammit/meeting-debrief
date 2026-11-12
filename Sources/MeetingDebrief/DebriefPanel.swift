@@ -167,7 +167,49 @@ struct TagControl: View {
         }
     }
 
+    /// Existing tags matching what's typed in the "New tag" field, for
+    /// one-click adding (so typing "SEA" surfaces "SEA training" instead of
+    /// creating a near-duplicate tag).
+    private var typedMatches: [String] {
+        let query = newTag.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return [] }
+        return allTags.filter { candidate in
+            candidate.localizedCaseInsensitiveContains(query)
+                && !tags.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+        }
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            tagRow
+            if !typedMatches.isEmpty {
+                HStack(spacing: 4) {
+                    Text("Matching:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(Array(typedMatches.prefix(4)), id: \.self) { tag in
+                        Button {
+                            add(tag)
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "tag")
+                                    .font(.system(size: 8))
+                                Text(tag)
+                            }
+                            .font(.subheadline)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.15), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Add tag “\(tag)”")
+                    }
+                }
+            }
+        }
+    }
+
+    private var tagRow: some View {
         HStack(spacing: 8) {
             Text("Tags")
                 .font(.subheadline)
